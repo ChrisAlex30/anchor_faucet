@@ -98,6 +98,103 @@ describe("anchor_faucet::initialize (existing mint on localhost)", () => {
 
 
 
+  it("mints 1 token to admin's ATA via PDA authority", async () => {
+    // 1) read mint from env
+    const mintStr = process.env.MINT?.trim();
+    if (!mintStr) throw new Error("Set env var MINT to your existing mint address");
+    const mint = new PublicKey(mintStr);
+
+    // 2) decide token program (classic vs token-2022)
+    const info = await provider.connection.getAccountInfo(mint);
+    if (!info) throw new Error("Mint not found on this cluster");
+    const tokenProgram =
+      info.owner.toBase58() === TOKENZ ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+    // 3) derive config PDA ["config", mint]
+    const [configPda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("config"), mint.toBuffer()],
+      program.programId
+    );
+
+    // 4) sanity: ensure PDA is current mint authority
+    const mintInfo = await getMint(provider.connection, mint, undefined, tokenProgram);
+    expect(mintInfo.mintAuthority, "mint has no authority").to.not.equal(null);
+    expect((mintInfo.mintAuthority as PublicKey).toBase58()).to.eq(configPda.toBase58());
+
+    // 5) ensure recipient ATA exists (admin’s wallet here)
+    const ata = await getOrCreateAssociatedTokenAccount(
+      provider.connection,
+      wallet.payer,
+      mint,
+      wallet.publicKey,
+      true,
+      "confirmed",
+      undefined,
+      tokenProgram
+    );
+
+    // 6) balance before
+    const beforeAcc = await getAccount(provider.connection, ata.address, "confirmed", tokenProgram);
+    const before = beforeAcc.amount; // bigint (base units)
+
+    // 7) drip 1 whole token (assuming 6 decimals => 1_000_000 base units)
+    const amount = new BN(1_000_000);
+    await program.methods
+      .drip(amount)
+      .accounts({
+        admin: wallet.publicKey, // must equal config.admin
+        mint,
+        to: ata.address,
+        tokenProgram,
+      })
+      .rpc();
+
+    // 8) balance after
+    const afterAcc = await getAccount(provider.connection, ata.address, "confirmed", tokenProgram);
+    const after = afterAcc.amount;
+
+    // 9) assert delta
+    expect(Number(after - before)).to.equal(1_000_000);
+  });
+
+
+  it("rejects drip from non-admin", async () => {
+  const mint = new PublicKey(process.env.MINT!.trim());
+  const info = await provider.connection.getAccountInfo(mint);
+  const tokenProgram = info!.owner.toBase58() === TOKENZ ? TOKEN_2022_PROGRAM_ID : TOKEN_PROGRAM_ID;
+
+  const [configPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("config"), mint.toBuffer()],
+    program.programId
+  );
+
+  // fresh throwaway signer
+  const bad = anchor.web3.Keypair.generate();
+  await provider.connection.requestAirdrop(bad.publicKey, 1e9);
+
+  // ATA for bad signer
+  const ata = await getOrCreateAssociatedTokenAccount(
+    provider.connection,
+    wallet.payer,
+    mint,
+    bad.publicKey,
+    true,
+    "confirmed",
+    undefined,
+    tokenProgram
+  );
+
+  let failed = false;
+  try {
+    await program.methods.drip(new BN(1_000_000)).accounts({
+      admin: bad.publicKey,  // not the stored admin
+      mint,
+      to: ata.address,
+      tokenProgram,
+    }).signers([bad]).rpc();
+  } catch { failed = true; }
+  expect(failed).to.eq(true);
+});
 
 
 });
