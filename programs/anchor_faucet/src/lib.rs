@@ -2,7 +2,7 @@ use anchor_lang::prelude::*;
 use anchor_spl::token_interface::{
     self, Mint, 
     SetAuthority, TokenInterface,
-    TokenAccount, MintTo,mint_to
+    TokenAccount, MintTo,mint_to,set_authority
 };
 use anchor_spl::token_interface::spl_token_2022::instruction::AuthorityType;
 
@@ -25,7 +25,7 @@ pub mod anchor_faucet {
                 current_authority: ctx.accounts.admin.to_account_info(),
             },
         );
-        token_interface::set_authority(
+        set_authority(
             cpi,
             AuthorityType::MintTokens,
             Some(ctx.accounts.config.key()),

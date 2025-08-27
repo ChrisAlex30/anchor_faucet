@@ -12,7 +12,7 @@ import {
 import { expect } from "chai";
 import { AnchorFaucet } from "../target/types/anchor_faucet";
 
-describe("anchor_faucet::initialize (existing mint on localhost)", () => {
+describe("anchor_faucet::initialize (existing mint on localhost/devnet)", () => {
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const wallet = provider.wallet ;
